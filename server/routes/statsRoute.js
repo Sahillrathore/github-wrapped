@@ -1,16 +1,22 @@
 const express = require("express");
-const { Octokit } = require("@octokit/rest");
+// ❌ don't require @octokit/rest directly (it's ESM)
+// const { Octokit } = require("@octokit/rest");
 const router = express.Router();
 const UserStats = require('../models/stats');
 
-require("dotenv").config();
+// ❌ don't load dotenv on Vercel; rely on Vercel env vars
+// require("dotenv").config();
 
-const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
-if (!GITHUB_TOKEN) {
-  throw new Error("Missing GITHUB_TOKEN in .env");
+// --- ESM-safe Octokit loader (cached) ---
+let OctokitCtor;
+async function getOctokit() {
+  if (!OctokitCtor) {
+    ({ Octokit: OctokitCtor } = await import("@octokit/rest"));
+  }
+  const token = process.env.GITHUB_TOKEN;
+  if (!token) throw new Error("Missing GITHUB_TOKEN environment variable");
+  return new OctokitCtor({ auth: token });
 }
-
-const octokit = new Octokit({ auth: GITHUB_TOKEN });
 
 const WEEKDAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const MONTH_NAMES = ["January", "February", "March", "April", "May", "June",
@@ -28,12 +34,14 @@ function getCommitRank(totalCommits) {
 
 router.get("/", async (req, res) => {
   const username = req.query.username;
-
   if (!username) {
     return res.status(400).json({ error: "Username is required" });
   }
 
   try {
+    // ✅ use ESM-loaded Octokit
+    const octokit = await getOctokit();
+
     const query = `
       query($username: String!) {
         user(login: $username) {
@@ -149,26 +157,25 @@ router.post("/save", async (req, res) => {
 })
 
 // GET top 10 users by commit count
-router.get('/leaderboard', async (req, res) => {
-    try {
-        const topUsers = await UserStats.find({})
-            .sort({ 'stats.totalCommits': -1 }) 
-            .limit(10);
+router.get('/leaderboard', async (_req, res) => {
+  try {
+    const topUsers = await UserStats.find({})
+      .sort({ 'stats.totalCommits': -1 })
+      .limit(10);
 
-        const simplified = topUsers.map(user => ({
-            username: user.username,
-            profile: user.user?.avatar_url || '',
-            character: user?.characterInfo?.name || 'Unknown',
-            score: user.stats.score || 0,
-            commits: user.stats.totalCommits || 0,
-            streak: user.stats.longestStreak || 0,
-        }));
+    const simplified = topUsers.map(user => ({
+      username: user.username,
+      profile: user.user?.avatar_url || '',
+      character: user?.characterInfo?.name || 'Unknown',
+      score: user.stats.score || 0,
+      commits: user.stats.totalCommits || 0,
+      streak: user.stats.longestStreak || 0,
+    }));
 
-        res.json(simplified);
-    } catch (err) {
-        res.status(500).json({ error: 'Failed to fetch leaderboard' });
-    }
+    res.json(simplified);
+  } catch (_err) {
+    res.status(500).json({ error: 'Failed to fetch leaderboard' });
+  }
 });
-
 
 module.exports = router;

@@ -3,7 +3,7 @@ const { Octokit } = require("@octokit/rest");
 const router = express.Router();
 const UserStats = require('./models/stats');
 
-require("dotenv").config();
+// require("dotenv").config();
 
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
 if (!GITHUB_TOKEN) {
